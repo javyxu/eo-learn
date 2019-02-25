@@ -11,6 +11,7 @@ from sentinelhub import MimeType
 import rasterio
 
 from eolearn.core import EOPatch, EOTask, FeatureType, get_common_timestamps
+from sentinelhub import BBox, CRS, ServiceType
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,13 +40,12 @@ class LocalFilesInput(EOTask):
         self.feature_type, self.feature_name = next(self._parse_features(layer if feature is None else feature,
                                                                          default_feature_type=FeatureType.DATA)())
 
-        # self.valid_data_mask_feature = self._parse_features(valid_data_mask_feature,
-        #                                                     default_feature_type=FeatureType.MASK)
+        self.valid_data_mask_feature = self._parse_features(valid_data_mask_feature,
+                                                            default_feature_type=FeatureType.MASK)
         self.image_format = image_format
 
     def _add_data(self, eopatch, data):
         """ Adds downloaded data to EOPatch """
-        # valid_mask = data[..., -1]
         # data = data[..., :-1]
 
         # if data.ndim == 3:
@@ -59,18 +59,40 @@ class LocalFilesInput(EOTask):
 
         eopatch[self.feature_type][self.feature_name] = data
 
-        # mask_feature_type, mask_feature_name = next(self.valid_data_mask_feature())
+        if self.datatype is 3:
+            valid_mask = data[..., -1]
+            mask_feature_type, mask_feature_name = next(self.valid_data_mask_feature())
 
-        # max_value = self.image_format.get_expected_max_value()
-        # valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape + (1,))
+            max_value = self.image_format.get_expected_max_value()
+            # valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape)
+            valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape + (1,))
 
-        # if mask_feature_name not in eopatch[mask_feature_type]:
-        #     eopatch[mask_feature_type][mask_feature_name] = valid_data
+            if mask_feature_name not in eopatch[mask_feature_type]:
+                eopatch[mask_feature_type][mask_feature_name] = valid_data
 
-    def _add_meta_info(self, eopatch, bbox):
+    def _add_meta_info(self, eopatch, maxcc, service_type, size_x, size_y, bbox):
         """ Adds any missing metadata info to EOPatch """
+        
+        if 'maxcc' not in eopatch.meta_info:
+            eopatch.meta_info['maxcc'] = maxcc
+
+        if 'time_interval' not in eopatch.meta_info:
+            eopatch.meta_info['time_interval'] = [dt.datetime(2017, 1, 1, 0, 0), dt.datetime(2017, 12, 31, 0, 0)]
+        
+        if 'time_difference' not in eopatch.meta_info:
+            eopatch.meta_info['time_difference'] = dt.timedelta(-1, 86399)
+        
+        if 'service_type' not in eopatch.meta_info:
+            eopatch.meta_info['service_type'] = service_type.value # ServiceType.IMAGE
+
+        if 'size_x' not in eopatch.meta_info:
+            eopatch.meta_info['size_x'] = size_x
+        
+        if 'size_y' not in eopatch.meta_info:
+            eopatch.meta_info['size_y'] = size_y
 
         if eopatch.bbox is None:
+            # bbox: BBox(((510157.61722214246, 5122327.229129893), (513489.214628833, 5125693.036780571)), crs=EPSG:32633)
             eopatch.bbox = bbox
 
     def execute(self, eopatch=None):
@@ -88,12 +110,14 @@ class LocalFilesInput(EOTask):
                 with rasterio.open(subdatasets[self.datatype]) as subds:
                     tmp_bands = np.transpose(subds.read(), (1, 2, 0))
                     images = tmp_bands[np.newaxis, :]
+                    # BBox(bbox=(510157.61722214246, 5122327.229129893, 513489.214628833, 5125693.036780571), crs=CRS.WGS84)
+                    bbox = BBox(bbox=(subds.bounds[0], subds.bounds[1], subds.bounds[2], subds.bounds[3]), crs=CRS.POP_WEB)
                     del tmp_bands
                     break
             
 
         self._add_data(eopatch, np.asarray(images))
-        # self._add_meta_info(eopatch, '')
+        self._add_meta_info(eopatch, 0.8, ServiceType.WCS, '10m', '10m', bbox)
         return eopatch
 
 
