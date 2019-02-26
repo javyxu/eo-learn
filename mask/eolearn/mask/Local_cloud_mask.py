@@ -198,6 +198,9 @@ class AddLocalCloudMaskTask(EOTask):
                 for v in bands.values():
                     with rasterio.open(subdatasets[v[0]]) as subds:
                         tmpdata = subds.read(v[1] + 1)
+                        minval = tmpdata.min()
+                        maxval = tmpdata.max()
+                        tmpdata = (tmpdata - [minval]) / (maxval - minval)
                         if v[0] is 1:
                             tmpdata = scipy.ndimage.interpolation.zoom(tmpdata, 2, order=3, mode='nearest')
                         elif v[0] is 2:

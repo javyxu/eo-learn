@@ -31,11 +31,12 @@ class LocalFilesInput(EOTask):
     :type image_format: constants.MimeType
     """
 
-    def __init__(self, layer, datafolder, datatype=0, feature=None, valid_data_mask_feature='IS_DATA', 
+    def __init__(self, layer, datafolder, bbox, datatype=0, feature=None, valid_data_mask_feature='IS_DATA', 
                 image_format=MimeType.TIFF_d32f):
         # pylint: disable=too-many-arguments
         self.layer = layer
         self.datafolder = datafolder
+        self.bbox = bbox
         self.datatype = datatype
         self.feature_type, self.feature_name = next(self._parse_features(layer if feature is None else feature,
                                                                          default_feature_type=FeatureType.DATA)())
@@ -69,6 +70,7 @@ class LocalFilesInput(EOTask):
 
             if mask_feature_name not in eopatch[mask_feature_type]:
                 eopatch[mask_feature_type][mask_feature_name] = valid_data
+
 
     def _add_meta_info(self, eopatch, maxcc, service_type, size_x, size_y, bbox):
         """ Adds any missing metadata info to EOPatch """
@@ -104,20 +106,36 @@ class LocalFilesInput(EOTask):
 
         # filename = '/Users/xujavy/Documents/Work/data/jupyter_data/sentinel/yunnan/S2B_MSIL1C_20180606T033629_N0206_R061_T48RUQ_20180606T085923.zip'
         filenames = list(Path(self.datafolder).resolve().glob('*.zip'))
+        images = None
         for filename in filenames:
             with rasterio.open(filename.as_posix()) as ds:
                 subdatasets = ds.subdatasets
                 with rasterio.open(subdatasets[self.datatype]) as subds:
-                    tmp_bands = np.transpose(subds.read(), (1, 2, 0))
-                    images = tmp_bands[np.newaxis, :]
+                    if self.datatype is 0:
+                        datas = []
+                        for i in range(subds.count):
+                            tmpdata = subds.read(i + 1)
+                            minval = tmpdata.min()
+                            maxval = tmpdata.max()
+                            tmpdata = (tmpdata - [minval]) / (maxval - minval)
+                            datas.append(tmpdata)
+                            del tmpdata
+                        images = ((np.transpose(np.asarray(datas), (1, 2, 0)))[np.newaxis, :]).astype(np.float32)
+                        del datas
+                    else:
+                        images = np.transpose(subds.read(), (1, 2, 0))
+                        images = images[np.newaxis, :]
+
+                    # TODO: 计算与Shape文件一样的box，和参考系
                     # BBox(bbox=(510157.61722214246, 5122327.229129893, 513489.214628833, 5125693.036780571), crs=CRS.WGS84)
-                    bbox = BBox(bbox=(subds.bounds[0], subds.bounds[1], subds.bounds[2], subds.bounds[3]), crs=CRS.POP_WEB)
-                    del tmp_bands
+                    # bbox = BBox(bbox=(subds.bounds[0], subds.bounds[1], subds.bounds[2], subds.bounds[3]), crs=CRS.POP_WEB)
+                    # bbox =  BBox(((11375052.80128679, 2787505.5475038067), (11489096.847488275, 2924480.702190843)), crs=CRS.POP_WEB)
+                    tar_bbox = BBox(((self.bbox[0], self.bbox[1]), (self.bbox[2], self.bbox[3])), crs=CRS.POP_WEB)
                     break
             
 
         self._add_data(eopatch, np.asarray(images))
-        self._add_meta_info(eopatch, 0.8, ServiceType.WCS, '10m', '10m', bbox)
+        self._add_meta_info(eopatch, 0.8, ServiceType.WCS, '10m', '10m', tar_bbox)
         return eopatch
 
 
