@@ -8,7 +8,9 @@ from pathlib import Path
 
 import numpy as np
 from sentinelhub import MimeType
+from rasterio.warp import calculate_default_transform
 import rasterio
+from rasterio import crs
 
 from eolearn.core import EOPatch, EOTask, FeatureType, get_common_timestamps
 from sentinelhub import BBox, CRS, ServiceType
@@ -31,12 +33,11 @@ class LocalFilesInput(EOTask):
     :type image_format: constants.MimeType
     """
 
-    def __init__(self, layer, datafolder, bbox, datatype=0, feature=None, valid_data_mask_feature='IS_DATA', 
+    def __init__(self, layer, datafolder, datatype=0, feature=None, valid_data_mask_feature='IS_DATA', 
                 image_format=MimeType.TIFF_d32f):
         # pylint: disable=too-many-arguments
         self.layer = layer
         self.datafolder = datafolder
-        self.bbox = bbox
         self.datatype = datatype
         self.feature_type, self.feature_name = next(self._parse_features(layer if feature is None else feature,
                                                                          default_feature_type=FeatureType.DATA)())
@@ -72,29 +73,35 @@ class LocalFilesInput(EOTask):
                 eopatch[mask_feature_type][mask_feature_name] = valid_data
 
 
-    def _add_meta_info(self, eopatch, maxcc, service_type, size_x, size_y, bbox):
+    def _add_meta_info(self, eopatch, bbox):
         """ Adds any missing metadata info to EOPatch """
         
-        if 'maxcc' not in eopatch.meta_info:
-            eopatch.meta_info['maxcc'] = maxcc
+        # if 'maxcc' not in eopatch.meta_info:
+        #     eopatch.meta_info['maxcc'] = maxcc
 
-        if 'time_interval' not in eopatch.meta_info:
-            eopatch.meta_info['time_interval'] = [dt.datetime(2017, 1, 1, 0, 0), dt.datetime(2017, 12, 31, 0, 0)]
+        # if 'time_interval' not in eopatch.meta_info:
+        #     eopatch.meta_info['time_interval'] = [dt.datetime(2017, 1, 1, 0, 0), dt.datetime(2017, 12, 31, 0, 0)]
         
-        if 'time_difference' not in eopatch.meta_info:
-            eopatch.meta_info['time_difference'] = dt.timedelta(-1, 86399)
+        # if 'time_difference' not in eopatch.meta_info:
+        #     eopatch.meta_info['time_difference'] = dt.timedelta(-1, 86399)
         
-        if 'service_type' not in eopatch.meta_info:
-            eopatch.meta_info['service_type'] = service_type.value # ServiceType.IMAGE
+        # if 'service_type' not in eopatch.meta_info:
+        #     eopatch.meta_info['service_type'] = service_type.value # ServiceType.IMAGE
 
-        if 'size_x' not in eopatch.meta_info:
-            eopatch.meta_info['size_x'] = size_x
+        # if 'size_x' not in eopatch.meta_info:
+        #     eopatch.meta_info['size_x'] = size_x
         
-        if 'size_y' not in eopatch.meta_info:
-            eopatch.meta_info['size_y'] = size_y
+        # if 'size_y' not in eopatch.meta_info:
+        #     eopatch.meta_info['size_y'] = size_y
 
         if eopatch.bbox is None:
             # bbox: BBox(((510157.61722214246, 5122327.229129893), (513489.214628833, 5125693.036780571)), crs=EPSG:32633)
+            # print(bbox)
+            dst_crs = crs.CRS.from_epsg('3857')
+            trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])
+            bbox = BBox(((trans_bbox[0][2], trans_bbox[0][5] + trans_bbox[2] * trans_bbox[0][4]), \
+                        (trans_bbox[0][2] + trans_bbox[1] * trans_bbox[0][0] ,trans_bbox[0][5])), \
+                        crs=CRS.POP_WEB)
             eopatch.bbox = bbox
 
     def execute(self, eopatch=None):
@@ -126,16 +133,14 @@ class LocalFilesInput(EOTask):
                         images = np.transpose(subds.read(), (1, 2, 0))
                         images = images[np.newaxis, :]
 
-                    # TODO: 计算与Shape文件一样的box，和参考系
-                    # BBox(bbox=(510157.61722214246, 5122327.229129893, 513489.214628833, 5125693.036780571), crs=CRS.WGS84)
-                    # bbox = BBox(bbox=(subds.bounds[0], subds.bounds[1], subds.bounds[2], subds.bounds[3]), crs=CRS.POP_WEB)
-                    # bbox =  BBox(((11375052.80128679, 2787505.5475038067), (11489096.847488275, 2924480.702190843)), crs=CRS.POP_WEB)
-                    tar_bbox = BBox(((self.bbox[0], self.bbox[1]), (self.bbox[2], self.bbox[3])), crs=CRS.POP_WEB)
+                    # TODO: 获取影像数据的Bounds和参考系
+                    srcbound = subds.crs, subds.width, subds.height, subds.bounds
+                    # print(srcbound)
                     break
             
 
         self._add_data(eopatch, np.asarray(images))
-        self._add_meta_info(eopatch, 0.8, ServiceType.WCS, '10m', '10m', tar_bbox)
+        self._add_meta_info(eopatch, srcbound)
         return eopatch
 
 
