@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 from sentinelhub import MimeType
 from rasterio.warp import calculate_default_transform
+from rasterio.transform import Affine
 import rasterio
 from rasterio import crs
 
@@ -33,11 +34,13 @@ class LocalFilesInput(EOTask):
     :type image_format: constants.MimeType
     """
 
-    def __init__(self, layer, datafolder, datatype=0, feature=None, valid_data_mask_feature='IS_DATA', 
+    def __init__(self, layer, datatype=0, feature=None, valid_data_mask_feature='IS_DATA', 
                 image_format=MimeType.TIFF_d32f):
         # pylint: disable=too-many-arguments
         self.layer = layer
-        self.datafolder = datafolder
+        # self.datafolder = datafolder
+        # self.hsplit = hsplit
+        # self.vsplit = vsplit
         self.datatype = datatype
         self.feature_type, self.feature_name = next(self._parse_features(layer if feature is None else feature,
                                                                          default_feature_type=FeatureType.DATA)())
@@ -97,50 +100,120 @@ class LocalFilesInput(EOTask):
         if eopatch.bbox is None:
             # bbox: BBox(((510157.61722214246, 5122327.229129893), (513489.214628833, 5125693.036780571)), crs=EPSG:32633)
             # print(bbox)
-            dst_crs = crs.CRS.from_epsg('3857')
-            trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])
-            bbox = BBox(((trans_bbox[0][2], trans_bbox[0][5] + trans_bbox[2] * trans_bbox[0][4]), \
-                        (trans_bbox[0][2] + trans_bbox[1] * trans_bbox[0][0] ,trans_bbox[0][5])), \
-                        crs=CRS.POP_WEB)
+            # dst_crs = crs.CRS.from_epsg('3857')
+            # trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])
+            # bbox = BBox(((trans_bbox[0][2], trans_bbox[0][5] + trans_bbox[2] * trans_bbox[0][4]), \
+            #             (trans_bbox[0][2] + trans_bbox[1] * trans_bbox[0][0] ,trans_bbox[0][5])), \
+            #             crs=CRS.POP_WEB)
             eopatch.bbox = bbox
 
-    def execute(self, eopatch=None):
+    
+    def _split_data(self, eopatch, datas, bbox, i, j):
+        dst_crs = crs.CRS.from_epsg('3857')
+        trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])[0]
+        # print(trans_bbox)
+
+        x = trans_bbox[2] + ((j * 1098)  * trans_bbox[0])
+        y = trans_bbox[5] + ((i * 1098)  * trans_bbox[4])
+        
+        # 加载数据
+        attr_data = np.asarray([datas[k][j][i] for k in range(len(datas))])
+        # print(attr_data.shape)
+        if self.datatype is 0:
+            images = ((np.transpose(np.asarray(attr_data), (1, 2, 0)))[np.newaxis, :]).astype(np.float32)
+        else:
+            images = ((np.transpose(np.asarray(attr_data), (1, 2, 0)))[np.newaxis, :])
+        self._add_data(eopatch, images)
+
+        # 设置数据box
+        new_trans = Affine(trans_bbox[0], trans_bbox[1], x, \
+                        trans_bbox[3], trans_bbox[4], y)
+        # print(new_trans)
+        bbox = BBox(((new_trans[2], new_trans[5] + new_trans[2] * new_trans[4]), \
+                    (new_trans[2] + new_trans[1] * new_trans[0] ,new_trans[5])), \
+                    crs=CRS.POP_WEB)
+        self._add_meta_info(eopatch, bbox)
+        del attr_data
+
+        # for j in range(len(datas.keys())):
+        #     x = trans_bbox[2] + ((j * 1098)  * trans_bbox[0])
+        #     for i in range(len(datas[j][0])):
+        #         attr_data = np.asarray([datas[j][0][i], datas[j][0][i], datas[j][0][i]])
+        #         y = trans_bbox[5] + ((i * 1098)  * trans_bbox[4])
+        #         new_trans = Affine(trans_bbox[0], trans_bbox[1], x, \
+        #                         trans_bbox[3], trans_bbox[4], y)
+        #         # 加载数据
+        #         if self.datatype is 0:
+        #             images = ((np.transpose(np.asarray(attr_data), (1, 2, 0)))[np.newaxis, :]).astype(np.float32)
+        #         else:
+        #             images = ((np.transpose(np.asarray(attr_data), (1, 2, 0)))[np.newaxis, :])
+        #         self._add_data(eopatch, images)
+
+        #         # 设置数据box
+        #         bbox = BBox(((new_trans[0][2], new_trans[0][5] + new_trans[2] * new_trans[0][4]), \
+        #                     (new_trans[0][2] + new_trans[1] * new_trans[0][0] ,new_trans[0][5])), \
+        #                     crs=CRS.POP_WEB)
+        #         self._add_meta_info(eopatch, bbox)
+        #         del attr_data
+
+
+
+    def execute(self, counti, countj, eopatch=None, datafolder=None, hsplit=10, vsplit=10):
         """
         
         """
+        if datafolder is None:
+            return
+
         if eopatch is None:
             eopatch = EOPatch()
 
         # filename = '/Users/xujavy/Documents/Work/data/jupyter_data/sentinel/yunnan/S2B_MSIL1C_20180606T033629_N0206_R061_T48RUQ_20180606T085923.zip'
-        filenames = list(Path(self.datafolder).resolve().glob('*.zip'))
-        images = None
+        filenames = list(Path(datafolder).resolve().glob('*.zip'))
+        # images = None
+        res = dict()
         for filename in filenames:
             with rasterio.open(filename.as_posix()) as ds:
                 subdatasets = ds.subdatasets
                 with rasterio.open(subdatasets[self.datatype]) as subds:
                     if self.datatype is 0:
-                        datas = []
                         for i in range(subds.count):
                             tmpdata = subds.read(i + 1)
                             minval = tmpdata.min()
                             maxval = tmpdata.max()
                             tmpdata = (tmpdata - [minval]) / (maxval - minval)
-                            datas.append(tmpdata)
-                            del tmpdata
-                        images = ((np.transpose(np.asarray(datas), (1, 2, 0)))[np.newaxis, :]).astype(np.float32)
-                        del datas
-                    else:
-                        images = np.transpose(subds.read(), (1, 2, 0))
-                        images = images[np.newaxis, :]
 
-                    # TODO: 获取影像数据的Bounds和参考系
+                            # 进行数据拆分
+                            hsplit_data = np.hsplit(tmpdata, hsplit)
+                            vsplit_datas = []
+                            for j in range(len(hsplit_data)):
+                                vsplit_data = np.vsplit(hsplit_data[j], vsplit)
+                                vsplit_datas.append(vsplit_data)
+                            res[i] = vsplit_datas
+                            del tmpdata
+                        # images = ((np.transpose(np.asarray(datas), (1, 2, 0)))[np.newaxis, :]).astype(np.float32)
+                        # del datas
+                    else:
+                        for i in range(subds.count):
+                            tmpdata = subds.read(i + 1)
+                            hsplit_data = np.hsplit(tmpdata, hsplit)
+                            vsplit_datas = []
+                            for j in range(len(hsplit_data)):
+                                vsplit_data = np.vsplit(hsplit_data[j], vsplit)
+                                vsplit_datas.append(vsplit_data)
+                            res[i] = vsplit_data
+                            del tmpdata
+                        # images = np.transpose(subds.read(), (1, 2, 0))
+                        # images = images[np.newaxis, :]
+
+                    # 获取影像数据的Bounds和参考系
                     srcbound = subds.crs, subds.width, subds.height, subds.bounds
                     # print(srcbound)
                     break
             
-
-        self._add_data(eopatch, np.asarray(images))
-        self._add_meta_info(eopatch, srcbound)
+        self._split_data(eopatch, res, srcbound, counti, countj)
+        # self._add_data(eopatch, np.asarray(images))
+        # self._add_meta_info(eopatch, srcbound)
         return eopatch
 
 
