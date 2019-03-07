@@ -35,7 +35,7 @@ class AddLocalCloudMaskTask(EOTask):
 
     This implementation should allow usage with any cloud detector implemented for different data sources (S2, L8, ..).
     """
-    def __init__(self, classifier, datafolder, data_feature, cm_size_x=None, cm_size_y=None, cmask_feature='CLM',
+    def __init__(self, classifier, data_feature, cm_size_x=None, cm_size_y=None, cmask_feature='CLM',
                  cprobs_feature=None, data_source=DataSource.SENTINEL2_L1C,
                  image_format=MimeType.TIFF_d32f, model_evalscript=MODEL_EVALSCRIPT):
         """ Constructor
@@ -65,7 +65,7 @@ class AddLocalCloudMaskTask(EOTask):
                             bands. Default is `MODEL_EVALSCRIPT`
         """
         self.classifier = classifier
-        self.datafolder = datafolder
+        # self.datafolder = datafolder
         self.data_feature = data_feature
         self.cm_feature = cmask_feature
         self.cm_size_x = cm_size_x
@@ -168,7 +168,7 @@ class AddLocalCloudMaskTask(EOTask):
 
         return hr_array
 
-    def execute(self, eopatch):
+    def execute(self, eopatch, counti, countj, datafolder=None, hsplit=10, vsplit=10):
         """ Add cloud binary mask and (optionally) cloud probability map to input eopatch
 
         :param eopatch: Input `EOPatch` instance
@@ -190,11 +190,12 @@ class AddLocalCloudMaskTask(EOTask):
         bands[8] = (1, 4)
         bands[9] = (1, 5)
 
-        filenames = list(Path(self.datafolder).resolve().glob('*.zip'))
+        filenames = list(Path(datafolder).resolve().glob('*.zip'))
+        res = dict()
         for filename in filenames:
             with rasterio.open(filename.as_posix()) as ds:
                 subdatasets = ds.subdatasets
-                new_data = None
+                i = 0
                 for v in bands.values():
                     with rasterio.open(subdatasets[v[0]]) as subds:
                         tmpdata = subds.read(v[1] + 1)
@@ -205,13 +206,20 @@ class AddLocalCloudMaskTask(EOTask):
                             tmpdata = scipy.ndimage.interpolation.zoom(tmpdata, 2, order=3, mode='nearest')
                         elif v[0] is 2:
                             tmpdata = scipy.ndimage.interpolation.zoom(tmpdata, 6, order=3, mode='nearest')
-                        if new_data is None:
-                            new_data = tmpdata[np.newaxis, :]
-                        else:
-                            new_data = np.vstack((new_data, tmpdata[np.newaxis, :]))
+
+                        # 进行数据拆分
+                        hsplit_data = np.hsplit(tmpdata, hsplit)
+                        vsplit_datas = []
+                        for j in range(len(hsplit_data)):
+                            vsplit_data = np.vsplit(hsplit_data[j], vsplit)
+                            vsplit_datas.append(vsplit_data)
+                        res[i] = vsplit_datas
                         del tmpdata
-        
-        new_data = np.transpose(new_data, (1, 2, 0))[np.newaxis, :]
+                    i = i + 1
+
+        attr_data = np.asarray([res[k][countj][counti] for k in range(len(res))])
+        new_data = np.transpose(attr_data, (1, 2, 0))[np.newaxis, :]
+        del attr_data
 
         # clf_probs_lr = self.classifier.get_cloud_probability_maps(new_data)
         # clf_mask_lr = self.classifier.get_mask_from_prob(clf_probs_lr)
@@ -228,8 +236,74 @@ class AddLocalCloudMaskTask(EOTask):
         if self.cprobs_feature is not None:
             # clf_probs_hr = self._upsampling(clf_probs_lr, rescale, reference_shape, interp='linear')
             eopatch.data[self.cprobs_feature] = (np.transpose(clf_probs, (1, 2, 0))[np.newaxis, :]).astype(np.float32)
-
+        
+        del new_data
+        del res
         return eopatch
+
+
+    # def execute(self, eopatch):
+    #     """ Add cloud binary mask and (optionally) cloud probability map to input eopatch
+
+    #     :param eopatch: Input `EOPatch` instance
+    #     :return: `EOPatch` with additional cloud maps
+    #     """
+    #     # Downsample or make request
+    #     if not eopatch.data:
+    #         raise ValueError('EOPatch must contain some data feature')
+        
+    #     bands = {}
+    #     bands[0] = (2, 0)
+    #     bands[1] = (0, 0)
+    #     bands[2] = (0, 2)
+    #     bands[3] = (1, 0)
+    #     bands[4] = (0, 3)
+    #     bands[5] = (1, 3)
+    #     bands[6] = (2, 1)
+    #     bands[7] = (2, 2)
+    #     bands[8] = (1, 4)
+    #     bands[9] = (1, 5)
+
+    #     filenames = list(Path(self.datafolder).resolve().glob('*.zip'))
+    #     for filename in filenames:
+    #         with rasterio.open(filename.as_posix()) as ds:
+    #             subdatasets = ds.subdatasets
+    #             new_data = None
+    #             for v in bands.values():
+    #                 with rasterio.open(subdatasets[v[0]]) as subds:
+    #                     tmpdata = subds.read(v[1] + 1)
+    #                     minval = tmpdata.min()
+    #                     maxval = tmpdata.max()
+    #                     tmpdata = (tmpdata - [minval]) / (maxval - minval)
+    #                     if v[0] is 1:
+    #                         tmpdata = scipy.ndimage.interpolation.zoom(tmpdata, 2, order=3, mode='nearest')
+    #                     elif v[0] is 2:
+    #                         tmpdata = scipy.ndimage.interpolation.zoom(tmpdata, 6, order=3, mode='nearest')
+    #                     if new_data is None:
+    #                         new_data = tmpdata[np.newaxis, :]
+    #                     else:
+    #                         new_data = np.vstack((new_data, tmpdata[np.newaxis, :]))
+    #                     del tmpdata
+        
+    #     new_data = np.transpose(new_data, (1, 2, 0))[np.newaxis, :]
+
+    #     # clf_probs_lr = self.classifier.get_cloud_probability_maps(new_data)
+    #     # clf_mask_lr = self.classifier.get_mask_from_prob(clf_probs_lr)
+
+    #     # Add cloud mask as a feature to EOPatch
+    #     # reference_shape = next(iter(eopatch.data.values())).shape[:3]
+    #     # rescale = self._get_rescale_factors(reference_shape[1:3], eopatch.meta_info)
+    #     # clf_mask_hr = self._upsampling(clf_mask_lr, rescale, reference_shape, interp='nearest')
+    #     clf_probs = self.classifier.get_cloud_probability_maps(new_data)
+    #     clf_mask = self.classifier.get_mask_from_prob(clf_probs)
+    #     eopatch.mask[self.cm_feature] = np.transpose(clf_mask, (1, 2, 0))[np.newaxis, :]
+
+    #     # If the feature name for cloud probability maps is specified, add as feature
+    #     if self.cprobs_feature is not None:
+    #         # clf_probs_hr = self._upsampling(clf_probs_lr, rescale, reference_shape, interp='linear')
+    #         eopatch.data[self.cprobs_feature] = (np.transpose(clf_probs, (1, 2, 0))[np.newaxis, :]).astype(np.float32)
+
+    #     return eopatch
 
 
 def get_s2_pixel_cloud_detector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True):

@@ -64,16 +64,26 @@ class LocalFilesInput(EOTask):
 
         eopatch[self.feature_type][self.feature_name] = data
 
-        if self.datatype is 3:
-            valid_mask = data[..., -1]
-            mask_feature_type, mask_feature_name = next(self.valid_data_mask_feature())
+        valid_mask = data[..., -1]
+        mask_feature_type, mask_feature_name = next(self.valid_data_mask_feature())
 
-            max_value = self.image_format.get_expected_max_value()
-            # valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape)
-            valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape + (1,))
+        max_value = self.image_format.get_expected_max_value()
+        # valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape)
+        valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape + (1,))
 
-            if mask_feature_name not in eopatch[mask_feature_type]:
-                eopatch[mask_feature_type][mask_feature_name] = valid_data
+        if mask_feature_name not in eopatch[mask_feature_type]:
+            eopatch[mask_feature_type][mask_feature_name] = valid_data
+
+        # if self.datatype is 3:
+        #     valid_mask = data[..., -1]
+        #     mask_feature_type, mask_feature_name = next(self.valid_data_mask_feature())
+
+        #     max_value = self.image_format.get_expected_max_value()
+        #     # valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape)
+        #     valid_data = (valid_mask == max_value).astype(np.bool).reshape(valid_mask.shape + (1,))
+
+        #     if mask_feature_name not in eopatch[mask_feature_type]:
+        #         eopatch[mask_feature_type][mask_feature_name] = valid_data
 
 
     def _add_meta_info(self, eopatch, bbox):
@@ -118,7 +128,9 @@ class LocalFilesInput(EOTask):
         
         # 加载数据
         attr_data = np.asarray([datas[k][j][i] for k in range(len(datas))])
+        del datas
         # print(attr_data.shape)
+
         if self.datatype is 0:
             images = ((np.transpose(np.asarray(attr_data), (1, 2, 0)))[np.newaxis, :]).astype(np.float32)
         else:
@@ -212,6 +224,7 @@ class LocalFilesInput(EOTask):
                     break
             
         self._split_data(eopatch, res, srcbound, counti, countj)
+        del res
         # self._add_data(eopatch, np.asarray(images))
         # self._add_meta_info(eopatch, srcbound)
         return eopatch
