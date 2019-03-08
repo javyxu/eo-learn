@@ -118,13 +118,13 @@ class LocalFilesInput(EOTask):
             eopatch.bbox = bbox
 
     
-    def _split_data(self, eopatch, datas, bbox, i, j):
+    def _split_data(self, eopatch, datas, bbox, i, j, xdis=1098, ydis=1098):
         dst_crs = crs.CRS.from_epsg('3857')
         trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])[0]
         # print(trans_bbox)
 
-        x = trans_bbox[2] + ((j * 1098)  * trans_bbox[0])
-        y = trans_bbox[5] + ((i * 1098)  * trans_bbox[4])
+        x = trans_bbox[2] + ((j * xdis)  * trans_bbox[0])
+        y = trans_bbox[5] + ((i * ydis)  * trans_bbox[4])
         
         # 加载数据
         attr_data = np.asarray([datas[k][j][i] for k in range(len(datas))])
@@ -222,8 +222,10 @@ class LocalFilesInput(EOTask):
                     srcbound = subds.crs, subds.width, subds.height, subds.bounds
                     # print(srcbound)
                     break
-            
-        self._split_data(eopatch, res, srcbound, counti, countj)
+        
+        hdis = 10980 / hsplit
+        vdis = 10980 / vsplit
+        self._split_data(eopatch, res, srcbound, counti, countj, hdis, vdis)
         del res
         # self._add_data(eopatch, np.asarray(images))
         # self._add_meta_info(eopatch, srcbound)
