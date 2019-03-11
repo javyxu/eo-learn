@@ -119,13 +119,6 @@ class LocalFilesInput(EOTask):
 
     
     def _split_data(self, eopatch, datas, bbox, i, j, xdis=1098, ydis=1098):
-        dst_crs = crs.CRS.from_epsg('3857')
-        trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])[0]
-        # print(trans_bbox)
-
-        x = trans_bbox[2] + ((j * xdis)  * trans_bbox[0])
-        y = trans_bbox[5] + ((i * ydis)  * trans_bbox[4])
-        
         # 加载数据
         attr_data = np.asarray([datas[k][j][i] for k in range(len(datas))])
         del datas
@@ -138,12 +131,23 @@ class LocalFilesInput(EOTask):
         self._add_data(eopatch, images)
 
         # 设置数据box
+        dst_crs = crs.CRS.from_epsg('3857')
+        trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])[0]
+        # print(trans_bbox)
+
+        x = trans_bbox[2] + ((i * xdis)  * trans_bbox[0])
+        y = trans_bbox[5] + ((j * ydis)  * trans_bbox[4])
         new_trans = Affine(trans_bbox[0], trans_bbox[1], x, \
                         trans_bbox[3], trans_bbox[4], y)
         # print(new_trans)
-        bbox = BBox(((new_trans[2], new_trans[5] + new_trans[2] * new_trans[4]), \
-                    (new_trans[2] + new_trans[1] * new_trans[0] ,new_trans[5])), \
+        # bbox = BBox(((new_trans[2], new_trans[5] + new_trans[2] * new_trans[4]), \
+        #             (new_trans[2] + new_trans[1] * new_trans[0], new_trans[5])), \
+                    # crs=CRS.POP_WEB)
+        bbox = BBox(((new_trans[2], new_trans[5] + (xdis * new_trans[4])), \
+                    (new_trans[2] + (ydis * new_trans[0]), new_trans[5])), \
                     crs=CRS.POP_WEB)
+
+        # print(bbox)
         self._add_meta_info(eopatch, bbox)
         del attr_data
 
