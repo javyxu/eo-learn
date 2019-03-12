@@ -337,12 +337,13 @@ class LocalTiffFilesInput(EOTask):
         # trans_bbox = calculate_default_transform(bbox[0], dst_crs, bbox[1], bbox[2], *bbox[3])[0]
         # # print(trans_bbox)
 
-        # x = trans_bbox[2] + ((i * xdis)  * trans_bbox[0])
-        # y = trans_bbox[5] + ((j * ydis)  * trans_bbox[4])
-        # new_trans = Affine(trans_bbox[0], trans_bbox[1], x, \
-        #                 trans_bbox[3], trans_bbox[4], y)
+        trans_bbox = bbox[3]
+        x = trans_bbox[2] + ((j * xdis)  * trans_bbox[0])
+        y = trans_bbox[5] + ((i * ydis)  * trans_bbox[4])
+        new_trans = Affine(trans_bbox[0], trans_bbox[1], x, \
+                        trans_bbox[3], trans_bbox[4], y)
         # print(new_trans)
-        new_trans = bbox[3]
+        # new_trans = bbox[3]
         # print(new_trans)
         bbox = BBox(((new_trans[2], new_trans[5] + (xdis * new_trans[4])), \
                     (new_trans[2] + (ydis * new_trans[0]), new_trans[5])), \
