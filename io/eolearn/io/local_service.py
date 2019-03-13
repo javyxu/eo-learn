@@ -320,7 +320,7 @@ class LocalTiffFilesInput(EOTask):
             eopatch.bbox = bbox
 
     
-    def _split_data(self, eopatch, datas, bbox, i, j, xdis=1098, ydis=1098):
+    def _split_data(self, eopatch, datas, bbox, i, j, xdis, ydis):
         # 加载数据
         attr_data = np.asarray([datas[k][j][i] for k in range(len(datas))])
         del datas
@@ -354,11 +354,11 @@ class LocalTiffFilesInput(EOTask):
         del attr_data
 
 
-    def execute(self, counti, countj, eopatch=None, datafolder=None, hsplit=10, vsplit=10):
+    def execute(self, filename, counti, countj, eopatch=None, hsplit=1, vsplit=1):
         """
         
         """
-        if datafolder is None:
+        if filename is None:
             return
 
         if eopatch is None:
@@ -369,30 +369,31 @@ class LocalTiffFilesInput(EOTask):
                     'B07':7, 'B08':8, 'B09':9, 'B10':10, 'B11':11, 'B12':12}
 
         # filename = '/Users/xujavy/Documents/Work/data/jupyter_data/sentinel/yunnan/S2B_MSIL1C_20180606T033629_N0206_R061_T48RUQ_20180606T085923.tif'
-        filenames = list(Path(datafolder).resolve().glob('*.tif'))
+        # filenames = list(Path(datafolder).resolve().glob('*.tif'))
         res = dict()
-        for filename in filenames:
-            with rasterio.open(filename.as_posix()) as ds:
-                i = 0
-                for band in self.bands:
-                    tmpdata = ds.read(banddict[band])
-                    minval = tmpdata.min()
-                    maxval = tmpdata.max()
-                    tmpdata = (tmpdata - [minval]) / (maxval - minval)
+        # for filename in filenames:
+        # with rasterio.open(filename.as_posix()) as ds:
+        with rasterio.open(filename) as ds:
+            i = 0
+            for band in self.bands:
+                tmpdata = ds.read(banddict[band])
+                minval = tmpdata.min()
+                maxval = tmpdata.max()
+                tmpdata = (tmpdata - [minval]) / (maxval - minval)
 
-                    # 进行数据拆分
-                    hsplit_data = np.hsplit(tmpdata, hsplit)
-                    vsplit_datas = []
-                    for j in range(len(hsplit_data)):
-                        vsplit_data = np.vsplit(hsplit_data[j], vsplit)
-                        vsplit_datas.append(vsplit_data)
-                    res[i] = vsplit_datas
-                    del tmpdata
-                    i = i + 1
+                # 进行数据拆分
+                hsplit_data = np.hsplit(tmpdata, hsplit)
+                vsplit_datas = []
+                for j in range(len(hsplit_data)):
+                    vsplit_data = np.vsplit(hsplit_data[j], vsplit)
+                    vsplit_datas.append(vsplit_data)
+                res[i] = vsplit_datas
+                del tmpdata
+                i = i + 1
 
-                # 获取影像数据的Bounds和参考系
-                srcbound = ds.crs, ds.width, ds.height, ds.transform
-                # print(srcbound)
+            # 获取影像数据的Bounds和参考系
+            srcbound = ds.crs, ds.width, ds.height, ds.transform
+            # print(srcbound)
         
         hdis = srcbound[2] / hsplit
         vdis = srcbound[1] / vsplit

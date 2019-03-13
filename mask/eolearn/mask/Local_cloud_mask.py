@@ -454,7 +454,7 @@ class AddLocalTiffCloudMaskTask(EOTask):
 
         return hr_array
 
-    def execute(self, eopatch, counti, countj, datafolder=None, hsplit=10, vsplit=10):
+    def execute(self, eopatch, filename, counti, countj, hsplit=1, vsplit=1):
         """ Add cloud binary mask and (optionally) cloud probability map to input eopatch
 
         :param eopatch: Input `EOPatch` instance
@@ -466,23 +466,24 @@ class AddLocalTiffCloudMaskTask(EOTask):
         
         BAND_IDXS = [0, 1, 3, 4, 7, 8, 9, 10, 11, 12]
 
-        filenames = list(Path(datafolder).resolve().glob('*.tif'))
+        # filenames = list(Path(datafolder).resolve().glob('*.tif'))
         res = dict()
-        for filename in filenames:
-            with rasterio.open(filename.as_posix()) as ds:
-                i = 0
-                for band_id in BAND_IDXS:
-                    tmpdata = ds.read(band_id + 1)
-                    
-                    # 进行数据拆分
-                    hsplit_data = np.hsplit(tmpdata, hsplit)
-                    vsplit_datas = []
-                    for j in range(len(hsplit_data)):
-                        vsplit_data = np.vsplit(hsplit_data[j], vsplit)
-                        vsplit_datas.append(vsplit_data)
-                    res[i] = vsplit_datas
-                    del tmpdata
-                    i = i + 1
+        # for filename in filenames:
+            # with rasterio.open(filename.as_posix()) as ds:
+        with rasterio.open(filename) as ds:
+            i = 0
+            for band_id in BAND_IDXS:
+                tmpdata = ds.read(band_id + 1)
+                
+                # 进行数据拆分
+                hsplit_data = np.hsplit(tmpdata, hsplit)
+                vsplit_datas = []
+                for j in range(len(hsplit_data)):
+                    vsplit_data = np.vsplit(hsplit_data[j], vsplit)
+                    vsplit_datas.append(vsplit_data)
+                res[i] = vsplit_datas
+                del tmpdata
+                i = i + 1
 
         attr_data = np.asarray([res[k][countj][counti] for k in range(len(res))])
         new_data = np.transpose(attr_data, (1, 2, 0))[np.newaxis, :]
